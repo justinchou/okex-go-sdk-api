@@ -11,13 +11,15 @@ https://github.com/okcoin-okex/open-api-v3-sdk
 
 本项目去除了一些其他语言, 修改一些 bug.
 
-## 1.Downloads or updates OKEX code's dependencies, in your command line
+## 1. 下载依赖
 
 ```bash
 go get -u github.com/justinchou/okex-go-sdk-api
 ```
 
-## 2.Write the go file. warm tips: test go file, must suffix \*\_test.go, eg: okex_open_api_v3_test.go
+## 2. 编写 golang 文件
+
+测试文件必须以 `\*\_test.go` 结尾, 例如: okex_open_api_v3_test.go
 
 ```go
 package gotest
@@ -36,7 +38,7 @@ func TestOKExServerTime(t *testing.T) {
 	fmt.Println("OKEx's server time: ", serverTime)
 }
 
-func NewOKExClient() *okex.Client {
+func getOKExConfig() okex.Config {
 	var config okex.Config
 
 	config.Endpoint = "https://www.okex.com/"
@@ -49,12 +51,32 @@ func NewOKExClient() *okex.Client {
 	config.IsPrint = true
 	config.I18n = okex.ENGLISH
 
+	return config
+}
+
+// 创建 https 客户端
+func NewOKExClient() *okex.Client {
+	config := getOKExConfig()
 	client := okex.NewClient(config)
+	return client
+}
+
+// 创建 wss 客户端
+func NewOKExWss() (client *okex.OKWSAgent, err error) {
+	config := getOKExConfig()
+
+	client := &okex.OKWSAgent{}
+	err = client.Start(config)
+	if err != nil {
+		fmt.Println("okex wss connect failed", err)
+		return nil
+	}
+
 	return client
 }
 ```
 
-## 3. run test go
+## 3. 启动测试
 
 ```bash
 go test -v -run TestOKExServerTime okex_open_api_v3_test.go
