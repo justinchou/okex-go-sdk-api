@@ -76,7 +76,6 @@ func (a *OKWSAgent) Start(config *Config) error {
 	go a.work()
 	go a.receive()
 	go a.finalize()
-	go a.keepalive()
 
 	return nil
 }
@@ -166,12 +165,7 @@ func (a *OKWSAgent) Login(apiKey, passphrase string) error {
 }
 
 func (a *OKWSAgent) keepalive() {
-	ticker := time.NewTicker(time.Second * 10)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		a.ping()
-	}
+	a.ping()
 }
 
 // Stop 关闭 Wss 链接
@@ -259,7 +253,7 @@ func (a *OKWSAgent) work() {
 
 	defer a.Stop()
 
-	ticker := time.NewTicker(29 * time.Second)
+	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
 	for {
