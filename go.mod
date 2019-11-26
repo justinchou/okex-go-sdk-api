@@ -1,4 +1,4 @@
-module okex-go-sdk-api
+module github.com/justinchou/okex-go-sdk-api
 
 go 1.13
 
