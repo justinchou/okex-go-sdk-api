@@ -23,8 +23,9 @@ import (
 	"time"
 )
 
+// OKWSAgent OKEx Wss 链接对象
 type OKWSAgent struct {
-	baseUrl string
+	baseURL string
 	config  *Config
 	conn    *websocket.Conn
 
@@ -42,42 +43,45 @@ type OKWSAgent struct {
 	processMut sync.Mutex
 }
 
+// Start 开启 Wss 链接
 func (a *OKWSAgent) Start(config *Config) error {
-	a.baseUrl = config.WSEndpoint + "ws/v3?compress=true"
-	log.Printf("Connecting to %s", a.baseUrl)
-	c, _, err := websocket.DefaultDialer.Dial(a.baseUrl, nil)
+	a.baseURL = config.WSEndpoint + "ws/v3?compress=true"
+	log.Printf("Connecting to %s", a.baseURL)
+	c, _, err := websocket.DefaultDialer.Dial(a.baseURL, nil)
 
 	if err != nil {
 		log.Fatalf("dial:%+v", err)
 		return err
-	} else {
-		a.conn = c
-		a.config = config
-
-		if a.config.IsPrint {
-			log.Printf("Connected to %s", a.baseUrl)
-		}
-
-		a.wsEvtCh = make(chan interface{})
-		a.wsErrCh = make(chan interface{})
-		a.wsTbCh = make(chan interface{})
-		a.errCh = make(chan error)
-		a.stopCh = make(chan interface{}, 16)
-		a.signalCh = make(chan os.Signal)
-		a.activeChannels = make(map[string]bool)
-		a.subMap = make(map[string][]ReceivedDataCallback)
-		a.hotDepthsMap = make(map[string]*WSHotDepths)
-
-		signal.Notify(a.signalCh, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-
-		go a.work()
-		go a.receive()
-		go a.finalize()
 	}
+
+	a.conn = c
+	a.config = config
+
+	if a.config.IsPrint {
+		log.Printf("Connected to %s", a.baseURL)
+	}
+
+	a.wsEvtCh = make(chan interface{})
+	a.wsErrCh = make(chan interface{})
+	a.wsTbCh = make(chan interface{})
+	a.errCh = make(chan error)
+	a.stopCh = make(chan interface{}, 16)
+	a.signalCh = make(chan os.Signal)
+	a.activeChannels = make(map[string]bool)
+	a.subMap = make(map[string][]ReceivedDataCallback)
+	a.hotDepthsMap = make(map[string]*WSHotDepths)
+
+	signal.Notify(a.signalCh, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+
+	go a.work()
+	go a.receive()
+	go a.finalize()
+	go a.keepalive()
 
 	return nil
 }
 
+// Subscribe 订阅某个频道
 func (a *OKWSAgent) Subscribe(channel, filter string, cb ReceivedDataCallback) error {
 	a.processMut.Lock()
 	defer a.processMut.Unlock()
@@ -112,6 +116,7 @@ func (a *OKWSAgent) Subscribe(channel, filter string, cb ReceivedDataCallback) e
 	return nil
 }
 
+// UnSubscribe 退订某个频道 - 本频道下的所有 filter 全都退订
 func (a *OKWSAgent) UnSubscribe(channel, filter string) error {
 	a.processMut.Lock()
 	defer a.processMut.Unlock()
@@ -136,30 +141,40 @@ func (a *OKWSAgent) UnSubscribe(channel, filter string) error {
 	return nil
 }
 
+// Login 登录, 授权后可以订阅私有数据
 func (a *OKWSAgent) Login(apiKey, passphrase string) error {
 
 	timestamp := EpochTime()
 
 	preHash := PreHashString(timestamp, GET, "/users/self/verify", "")
-	if sign, err := HmacSha256Base64Signer(preHash, a.config.SecretKey); err != nil {
+
+	sign, err := HmacSha256Base64Signer(preHash, a.config.SecretKey)
+	if err != nil {
 		return err
-	} else {
-		op, err := loginOp(apiKey, passphrase, timestamp, sign)
-		data, err := Struct2JsonString(op)
-		log.Printf("Send Msg: %s", data)
-		err = a.conn.WriteMessage(websocket.TextMessage, []byte(data))
-		if err != nil {
-			return err
-		}
-		time.Sleep(time.Millisecond * 100)
 	}
+
+	op, err := loginOp(apiKey, passphrase, timestamp, sign)
+	data, err := Struct2JsonString(op)
+	log.Printf("Send Msg: %s", data)
+	err = a.conn.WriteMessage(websocket.TextMessage, []byte(data))
+	if err != nil {
+		return err
+	}
+	time.Sleep(time.Millisecond * 100)
+
 	return nil
 }
 
 func (a *OKWSAgent) keepalive() {
-	a.ping()
+	ticker := time.NewTicker(time.Second * 10)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		a.ping()
+	}
 }
 
+// Stop 关闭 Wss 链接
 func (a *OKWSAgent) Stop() error {
 	defer func() {
 		a := recover()
@@ -195,6 +210,7 @@ func (a *OKWSAgent) ping() {
 	a.conn.WriteMessage(websocket.TextMessage, []byte(msg))
 }
 
+// GzipDecode 解压缩通过 Gzip 压缩过的数据
 func (a *OKWSAgent) GzipDecode(in []byte) ([]byte, error) {
 	reader := flate.NewReader(bytes.NewReader(in))
 	defer reader.Close()
